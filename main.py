@@ -23,6 +23,10 @@ def resumir_certificados(ruta_archivo, nombre_hoja='ReporteMeta'):
         # Limpiar espacios en blanco de los nombres de las columnas si los hay
         df.columns = df.columns.str.strip()
 
+        # Definir una función de agregación personalizada para sumar solo valores únicos
+        def sum_unique(series):
+            return series.drop_duplicates().sum()
+
         # Definir las operaciones de agregación para cada columna
         agregaciones = {
             'ano_eje': 'first',
@@ -33,11 +37,11 @@ def resumir_certificados(ruta_archivo, nombre_hoja='ReporteMeta'):
             'fase': 'first',
             'moneda': lambda x: ', '.join(x.dropna().unique()),
             'expediente': 'first',
-            'monto_certificado': 'last',
-            'monto_comp_anual': 'last',
-            'compromiso': 'last',
-            'devengado': 'last',
-            'girado': 'last',
+            'monto_certificado': sum_unique,
+            'monto_comp_anual': sum_unique,
+            'compromiso': sum_unique,
+            'devengado': sum_unique,
+            'girado': sum_unique,
         }
 
         # Agrupar el DataFrame por la columna 'certificado' y aplicar las agregaciones
@@ -59,7 +63,6 @@ def resumir_certificados(ruta_archivo, nombre_hoja='ReporteMeta'):
     except Exception as e:
         print(f"Ocurrió un error inesperado: {e}")
 
-# --- Uso del script ---
 if __name__ == "__main__":
     nombre_de_tu_archivo = 'rptCertificacionCompromisoExpediente.xls'
     resumir_certificados(nombre_de_tu_archivo)
