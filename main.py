@@ -4,11 +4,11 @@ from tkinter import filedialog, messagebox, ttk
 import threading
 import time
 
-# Lógica de procesamiento de Excel
 def resumir_certificados(ruta_archivo, nombre_hoja='Hoja1'):
     """
     Agrupa registros de un archivo de Excel por 'certificado' y consolida los datos.
-    Suma solo los valores únicos de las columnas de montos.
+    Suma los valores únicos de cada monto, considerando la 'secuencia', 
+    excepto para 'monto_certificado'.
     
     Args:
         ruta_archivo (str): La ruta al archivo de Excel a procesar.
@@ -16,7 +16,7 @@ def resumir_certificados(ruta_archivo, nombre_hoja='Hoja1'):
     """
     try:
         # Simulación de un proceso largo
-        time.sleep(2) 
+        time.sleep(2)
         
         # Cargar el archivo de Excel en un DataFrame de pandas
         dtype_cols = {
@@ -30,26 +30,56 @@ def resumir_certificados(ruta_archivo, nombre_hoja='Hoja1'):
         
         df.columns = df.columns.str.strip()
         
+        # Las columnas que se deben sumar en base a 'certificado' y 'secuencia'
+        columnas_monto = ['monto_comp_anual', 'compromiso', 'devengado', 'girado']
+
+        # Creamos una función de agregación personalizada para sumar solo valores únicos
+        def sum_unique_per_group(series):
+            return series.drop_duplicates().sum()
+        
+        # Primero, agrupar por 'certificado' y 'secuencia' y sumar los valores únicos
+        agregaciones_montos_unicos = {col: sum_unique_per_group for col in columnas_monto}
+        df_agrupado_secuencia = df.groupby(['certificado', 'secuencia']).agg(agregaciones_montos_unicos).reset_index()
+        
+        # Luego, agrupar el resultado por 'certificado' y sumar todos los valores.
+        df_final = df_agrupado_secuencia.groupby('certificado')[columnas_monto].sum().reset_index()
+        
+        # Ahora, manejar las otras columnas que no son montos y la excepción de 'monto_certificado'
+        
+        # Para las columnas que se mantienen (tomando el primer valor)
+        columnas_first = ['ano_eje', 'sec_ejec', 'certificacion', 'expediente', 'fecha_certi', 'ciclo', 'fase']
+        df_info = df.groupby('certificado')[columnas_first].first().reset_index()
+        
+        # Para 'moneda', unir los valores únicos y renombrar la columna
+        df_moneda = df.groupby('certificado')['moneda'].apply(lambda x: ', '.join(x.dropna().unique())).reset_index()
+        df_moneda.rename(columns={'moneda': 'moneda_agregada'}, inplace=True)
+        
+        # Para 'monto_certificado', sumar los valores únicos sin importar la secuencia
         def sum_unique(series):
             return series.drop_duplicates().sum()
-
-        agregaciones = {
-            'ano_eje': 'first',
-            'sec_ejec': 'first',
-            'certificacion': 'first',
-            'secuencia': 'first',
-            'ciclo': 'first',
-            'fase': 'first',
-            'moneda': lambda x: ', '.join(x.dropna().unique()),
-            'expediente': 'first',
-            'monto_certificado': sum_unique,
-            'monto_comp_anual': sum_unique,
-            'compromiso': sum_unique,
-            'devengado': sum_unique,
-            'girado': sum_unique,
-        }
+            
+        df_monto_certi = df.groupby('certificado')['monto_certificado'].apply(sum_unique).reset_index()
         
-        df_resumido = df.groupby('certificado', as_index=False).agg(agregaciones)
+        # Unir todos los DataFrames resultantes
+        df_resumido = pd.merge(df_info, df_moneda, on='certificado', how='left')
+        df_resumido = pd.merge(df_resumido, df_monto_certi, on='certificado', how='left')
+        df_resumido = pd.merge(df_resumido, df_final, on='certificado', how='left')
+
+        # Definir el orden original de las columnas
+        orden_original = list(df.columns)
+        
+        # Se elimina la columna 'secuencia' y se reemplaza 'moneda' por 'moneda_agregada'
+        orden_final = [col for col in orden_original if col != 'secuencia']
+        
+        # Reemplazar el nombre de la columna en la lista de orden final
+        if 'moneda' in orden_final:
+            orden_final[orden_final.index('moneda')] = 'moneda_agregada'
+        
+        df_resumido = df_resumido[orden_final]
+        
+        # Renombrar 'moneda_agregada' a 'moneda' para el archivo de salida
+        df_resumido.rename(columns={'moneda_agregada': 'moneda'}, inplace=True)
+        
         df_resumido = df_resumido.sort_values(by='certificado')
         
         nombre_archivo_salida = 'certificados_resumidos.xlsx'
@@ -58,11 +88,13 @@ def resumir_certificados(ruta_archivo, nombre_hoja='Hoja1'):
         return f"Proceso completado. Los datos consolidados se han guardado en '{nombre_archivo_salida}'.", "success"
         
     except FileNotFoundError:
-        return "Error: El archivo no se encontró.", "error"
+        return "Error: El archivo no se encontró. Asegúrate de que el archivo exista.", "error"
     except KeyError as e:
+        # Aquí se incluye la variable e para que muestre el nombre de la columna que falta
         return f"Error: La columna {e} no se encontró en el archivo. Revisa los nombres de las columnas.", "error"
     except Exception as e:
         return f"Ocurrió un error inesperado: {e}", "error"
+
 
 # --- Funciones y clase para la GUI ---
 class App(tk.Tk):
